@@ -1,4 +1,4 @@
-name = "dht"
+name = "mldht"
 
 [defaults]
 builder = "exec:go"

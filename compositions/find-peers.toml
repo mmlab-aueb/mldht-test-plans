@@ -1,85 +1,18 @@
 [metadata]
-  name = "all"
-  author = "adlrocha"
+  name = "find-peers"
+  author = "Nikos Fotiou"
 
 [global]
-  plan = "dht"
-  case = "all"
+  plan = "mldht"
+  case = "find-peers"
   total_instances = 30
   builder = "docker:go"
   runner = "local:docker"
 
 [[groups]]
-  id = "passive"
-  [groups.instances]
-    count = 5
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      alpha = "6"
-      beta = "3"
-      bs_strategy = "6"
-      bucket_size = "10"
-      group_order = "1"
-      latency = "100"
-      timeout_secs = "600"
-
-[[groups]]
-  id = "provider-small"
-  [groups.instances]
-    count = 5
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      alpha = "6"
-      beta = "3"
-      bs_strategy = "6"
-      bucket_size = "10"
-      group_order = "4"
-      latency = "100"
-      record_count = "1"
-      timeout_secs = "600"
-
-[[groups]]
-  id = "provider-medium"
-  [groups.instances]
-    count = 5
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      alpha = "6"
-      beta = "3"
-      bs_strategy = "6"
-      bucket_size = "10"
-      group_order = "3"
-      latency = "100"
-      record_count = "1"
-      timeout_secs = "600"
-
-[[groups]]
-  id = "provider-large"
-  [groups.instances]
-    count = 5
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      alpha = "6"
-      beta = "3"
-      bs_strategy = "6"
-      bucket_size = "10"
-      group_order = "2"
-      latency = "100"
-      record_count = "1"
-      timeout_secs = "600"
-
-[[groups]]
   id = "searcher"
   [groups.instances]
-    count = 5
+    count = 25
     percentage = 0.0
 
   [groups.run]

@@ -1,4 +1,4 @@
-module github.com/libp2p/test-plans/dht
+module github.com/mmlab-aueb/mldht-test-plans/mldht
 
 go 1.14
 

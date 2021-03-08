@@ -1,7 +1,7 @@
 package main
 
 import (
-	test "github.com/libp2p/test-plans/dht/test"
+	test "github.com/mmlab-aueb/mldht-test-plans/mldht/test"
 	"github.com/testground/sdk-go/run"
 )
 

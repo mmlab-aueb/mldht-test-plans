@@ -1,0 +1,33 @@
+name = "mldht-test"
+
+[defaults]
+builder = "exec:go"
+runner = "local:exec"
+
+
+[builders."docker:go"]
+enabled = true
+build_base_image="golang:1.16.0-buster"
+
+# TODO: exec:go is not ready yet
+[builders."exec:go"]
+enabled = true
+
+[runners."local:docker"]
+enabled = true
+
+[runners."local:exec"]
+enabled = true
+
+[runners."cluster:swarm"]
+enabled = true
+
+[runners."cluster:k8s"]
+enabled = true
+
+[[testcases]]
+name = "store-lookup"
+instances = { min = 16, max = 10000, default = 16 }
+
+  [testcases.params]
+  timeout_secs = { type = "int", desc = "test timeout", unit = "seconds", default = 300 }

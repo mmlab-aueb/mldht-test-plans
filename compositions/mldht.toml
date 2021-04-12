@@ -1,0 +1,30 @@
+[metadata]
+  name = "mldht-composition"
+  author = "Nikos Fotiou"
+
+[global]
+  plan = "mldht-test"
+  case = "store-lookup"
+  total_instances = 16
+  builder = "docker:go"
+  runner = "local:docker"
+
+[[groups]]
+  id = "providers"
+  [groups.instances]
+    count = 8
+    percentage = 0.0
+
+  [groups.run]
+    [groups.run.test_params]
+      timeout_secs = "600"
+
+[[groups]]
+  id = "searchers"
+  [groups.instances]
+    count = 8
+    percentage = 0.0
+
+  [groups.run]
+    [groups.run.test_params]
+      timeout_secs = "600"

@@ -27,7 +27,7 @@ enabled = true
 
 [[testcases]]
 name = "store-lookup"
-instances = { min = 16, max = 10000, default = 16 }
+instances = { min = 2, max = 10000, default = 2 }
 
   [testcases.params]
   timeout_secs = { type = "int", desc = "test timeout", unit = "seconds", default = 300 }

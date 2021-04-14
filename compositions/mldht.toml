@@ -5,14 +5,14 @@
 [global]
   plan = "mldht-test"
   case = "store-lookup"
-  total_instances = 16
+  total_instances = 4
   builder = "docker:go"
   runner = "local:docker"
 
 [[groups]]
   id = "providers"
   [groups.instances]
-    count = 8
+    count = 2
     percentage = 0.0
 
   [groups.run]
@@ -22,7 +22,7 @@
 [[groups]]
   id = "searchers"
   [groups.instances]
-    count = 8
+    count = 2
     percentage = 0.0
 
   [groups.run]

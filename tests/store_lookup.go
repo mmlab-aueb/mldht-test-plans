@@ -9,11 +9,19 @@ import (
 	"github.com/testground/sdk-go/network"
 )
 
+type NodeInfo struct
+{
+	IP     *net.IP
+}
+
+var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
+
 func StoreLookup(runenv *runtime.RunEnv) error {
 	ctx := context.Background()
-	startedState := sync.State("started")
 	client := sync.MustBoundClient(ctx, runenv)
 	defer client.Close()
+
+	startedState := sync.State("started")
 	// instantiate a network client; see 'Traffic shaping' in the docs.
 	netclient := network.NewClient(client, runenv)
 	runenv.RecordMessage("waiting for network initialization")
@@ -21,17 +29,20 @@ func StoreLookup(runenv *runtime.RunEnv) error {
 	// wait for the network to initialize; this should be pretty fast.
 	netclient.MustWaitNetworkInitialized(ctx)
 	runenv.RecordMessage("network initilization complete")
-	if addrs, err := net.InterfaceAddrs(); err==nil {
-		for _, addr := range addrs {
-			if ip, ok := addr.(*net.IPNet); ok && ip.IP.To4() != nil{
-				runenv.RecordMessage("My IP address is %s", ip.IP.String())
-			}
-		}
-	}
-
+	ip := netclient.MustGetDataNetworkIP()
+	runenv.RecordMessage("IP address: %s", ip)
+	//publishing my information
+	node_info_channel := make(chan *NodeInfo)
+	_, _ = client.MustPublishSubscribe(ctx, node_info_topic, &NodeInfo{&ip}, node_info_channel)
 	runenv.RecordMessage("Starting experiment")
+	//wait until all nodes have reached this state
 	seq := client.MustSignalAndWait(ctx, startedState,4)
 	runenv.RecordMessage("my sequence ID: %d", seq)
+	//read the entries published in the channel
+	for i := 0; i < 4; i++ {
+		entry := <-node_info_channel
+		runenv.RecordMessage("Received from channel %s", entry.IP.String())
+	}
 
 	runenv.RecordMessage("Ending experiment")
 	return nil

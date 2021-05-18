@@ -46,7 +46,10 @@ func StoreLookup(runenv *runtime.RunEnv) error {
 	client := sync.MustBoundClient(ctx, runenv)
 	defer client.Close()
 
-	startedState := sync.State("started")
+	startedState   := sync.State("Started")
+	//lipbp2pState   := sync.State("libp2p-setup-completed")
+	bootstrapState := sync.State("bootstrap-completed")
+	totalNodes     := runenv.TestInstanceCount
 	// instantiate a network client; see 'Traffic shaping' in the docs.
 	netclient := network.NewClient(client, runenv)
 	runenv.RecordMessage("waiting for network initialization")
@@ -61,10 +64,10 @@ func StoreLookup(runenv *runtime.RunEnv) error {
 	_, _ = client.MustPublishSubscribe(ctx, node_info_topic, &NodeInfo{&ip}, node_info_channel)
 	runenv.RecordMessage("Starting experiment")
 	//wait until all nodes have reached this state
-	seq := client.MustSignalAndWait(ctx, startedState,4)
+	seq := client.MustSignalAndWait(ctx, startedState,totalNodes)
 	runenv.RecordMessage("my sequence ID: %d", seq)
 	//read the entries published in the channel
-	for i := 0; i < 4; i++ {
+	for i := 0; i < totalNodes; i++ {
 		entry := <-node_info_channel
 		runenv.RecordMessage("Received from channel %s", entry.IP.String())
 	}
@@ -73,6 +76,14 @@ func StoreLookup(runenv *runtime.RunEnv) error {
 	host, err := libp2p.New(ctx,
 		libp2p.ListenAddrs(addr),
 	)
+	//the first nodes is assumed to be the bootstrap node
+	if seq == 1 {
+		client.MustSignalEntry(ctx, bootstrapState)
+	} else{
+		<-client.MustBarrier(ctx, bootstrapState, int(seq-1)).C
+		runenv.RecordMessage("Node %d will bootstrap", seq)
+		client.MustSignalEntry(ctx, bootstrapState)
+	}
 	if err != nil {
 		panic(err)
 	}

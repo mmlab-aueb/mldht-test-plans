@@ -4,7 +4,7 @@
 
 [global]
   plan = "mldht-test"
-  case = "store-lookup"
+  case = "dht-case"
   total_instances = 4
   builder = "docker:go"
   runner = "local:docker"

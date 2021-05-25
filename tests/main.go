@@ -5,7 +5,7 @@ import (
 )
 
 var testCases = map[string]interface{}{
-	"store-lookup":   StoreLookup,
+	"dht-case":   DHTTest,
 }
 
 func main() {

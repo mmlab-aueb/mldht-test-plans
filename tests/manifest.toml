@@ -26,7 +26,7 @@ enabled = true
 enabled = true
 
 [[testcases]]
-name = "store-lookup"
+name = "dht-case"
 instances = { min = 2, max = 10000, default = 2 }
 
   [testcases.params]

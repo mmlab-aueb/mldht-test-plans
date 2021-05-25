@@ -41,7 +41,8 @@ func getSubnetAddr(runenv *runtime.RunEnv) (*net.TCPAddr, error) {
 	return nil, fmt.Errorf("no network interface found. Addrs: %v", addrs)
 }
 
-func StoreLookup(runenv *runtime.RunEnv) error {
+func DHTTest(runenv *runtime.RunEnv) error {
+	runenv.RecordMessage("Starting test case")
 	ctx    := context.Background()
 	synClient := sync.MustBoundClient(ctx, runenv)
 	defer synClient.Close()
@@ -100,6 +101,6 @@ func StoreLookup(runenv *runtime.RunEnv) error {
 	}
 
 	synClient.MustSignalAndWait(ctx, experimentCompleted,totalNodes)
-	runenv.RecordMessage("Ending experiment")
+	runenv.RecordMessage("Ending test case")
 	return nil
 }

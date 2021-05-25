@@ -9,16 +9,16 @@ import (
 	"github.com/testground/sdk-go/sync"
 	"github.com/testground/sdk-go/network"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/peer"
 	manet "github.com/multiformats/go-multiaddr-net"
-
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/ipfs/go-log/v2"
 )
 
 type NodeInfo struct
 {
-	IP     *net.IP
+	Addr *peer.AddrInfo //<- Be careful, variable name must start with capital
 }
-
 var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 
 func getSubnetAddr(runenv *runtime.RunEnv) (*net.TCPAddr, error) {
@@ -42,53 +42,64 @@ func getSubnetAddr(runenv *runtime.RunEnv) (*net.TCPAddr, error) {
 }
 
 func StoreLookup(runenv *runtime.RunEnv) error {
-	ctx := context.Background()
-	client := sync.MustBoundClient(ctx, runenv)
-	defer client.Close()
+	ctx    := context.Background()
+	synClient := sync.MustBoundClient(ctx, runenv)
+	defer synClient.Close()
 
-	startedState   := sync.State("Started")
-	//lipbp2pState   := sync.State("libp2p-setup-completed")
-	bootstrapState := sync.State("bootstrap-completed")
-	totalNodes     := runenv.TestInstanceCount
+	libp2pInitialized   := sync.State("libp2p-init-completed")
+	bootstrapCompleted  := sync.State("bootstrap-completed")
+	experimentCompleted := sync.State("experiment-completed")
+	totalNodes          := runenv.TestInstanceCount
+
 	// instantiate a network client; see 'Traffic shaping' in the docs.
-	netclient := network.NewClient(client, runenv)
+	netClient := network.NewClient(synClient, runenv)
 	runenv.RecordMessage("waiting for network initialization")
-
-	// wait for the network to initialize; this should be pretty fast.
-	netclient.MustWaitNetworkInitialized(ctx)
-	runenv.RecordMessage("network initilization complete")
-	ip := netclient.MustGetDataNetworkIP()
-	runenv.RecordMessage("IP address: %s", ip)
-	//publishing my information
-	node_info_channel := make(chan *NodeInfo)
-	_, _ = client.MustPublishSubscribe(ctx, node_info_topic, &NodeInfo{&ip}, node_info_channel)
-	runenv.RecordMessage("Starting experiment")
-	//wait until all nodes have reached this state
-	seq := client.MustSignalAndWait(ctx, startedState,totalNodes)
-	runenv.RecordMessage("my sequence ID: %d", seq)
-	//read the entries published in the channel
-	for i := 0; i < totalNodes; i++ {
-		entry := <-node_info_channel
-		runenv.RecordMessage("Received from channel %s", entry.IP.String())
-	}
-	tcpAddr, err := getSubnetAddr(runenv)
-	addr, err := manet.FromNetAddr(tcpAddr)
-	host, err := libp2p.New(ctx,
-		libp2p.ListenAddrs(addr),
+	netClient.MustWaitNetworkInitialized(ctx)
+	
+	/*
+	Configure libp2p
+	*/
+	tcpAddr, err    := getSubnetAddr(runenv)
+	mutliAddr, err  := manet.FromNetAddr(tcpAddr)
+	libp2pNode, err := libp2p.New(ctx,
+		libp2p.ListenAddrs(mutliAddr),
 	)
-	//the first nodes is assumed to be the bootstrap node
-	if seq == 1 {
-		client.MustSignalEntry(ctx, bootstrapState)
+	addrInfo := host.InfoFromHost(libp2pNode)
+	runenv.RecordMessage("libp2p initilization complete")
+	seq := synClient.MustSignalAndWait(ctx, libp2pInitialized,totalNodes)
+	
+	/*
+	Synchronize nodes
+	*/
+	if seq==1 { // I am the bootstrap node, publish
+		synClient.Publish(ctx, node_info_topic,  &NodeInfo{addrInfo})
+	}
+	bootstap_info_channel := make(chan *NodeInfo)
+	synClient.Subscribe(ctx, node_info_topic,  bootstap_info_channel)
+	bootstrap_node := <-bootstap_info_channel
+	runenv.RecordMessage("Received from channel %s", bootstrap_node.Addr)
+
+	/*
+	Bootstap nodes
+	*/	
+	if seq == 1 {//the first nodes is assumed to be the bootstrap node
+		synClient.MustSignalEntry(ctx, bootstrapCompleted)
 	} else{
-		<-client.MustBarrier(ctx, bootstrapState, int(seq-1)).C
-		runenv.RecordMessage("Node %d will bootstrap", seq)
-		client.MustSignalEntry(ctx, bootstrapState)
+		//Bootstrap one by one
+		<-synClient.MustBarrier(ctx, bootstrapCompleted, int(seq-1)).C
+		runenv.RecordMessage("Node %d will bootstrap from %s", seq, bootstrap_node.Addr)
+		if err := libp2pNode.Connect(ctx, *bootstrap_node.Addr); err != nil {
+			runenv.RecordMessage("Error in connecting %s", err)
+		} else {
+			runenv.RecordMessage("Connection established")
+		}
+		synClient.MustSignalEntry(ctx, bootstrapCompleted)	
 	}
 	if err != nil {
 		panic(err)
 	}
-	runenv.RecordMessage("Host created. We are:", host.ID())
 
+	synClient.MustSignalAndWait(ctx, experimentCompleted,totalNodes)
 	runenv.RecordMessage("Ending experiment")
 	return nil
 }

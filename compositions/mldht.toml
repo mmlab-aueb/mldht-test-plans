@@ -8,23 +8,9 @@
   total_instances = 4
   builder = "docker:go"
   runner = "local:docker"
+  timeout_secs = "600"
 
 [[groups]]
-  id = "providers"
+  id = "nodes"
   [groups.instances]
-    count = 2
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      timeout_secs = "600"
-
-[[groups]]
-  id = "searchers"
-  [groups.instances]
-    count = 2
-    percentage = 0.0
-
-  [groups.run]
-    [groups.run.test_params]
-      timeout_secs = "600"
+    percentage = 1.0

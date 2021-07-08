@@ -29,7 +29,13 @@ type NodeInfo struct
 {
 	Addr *peer.AddrInfo //<- Be careful, variable name must start with capital
 }
+type ItemInfo struct
+{
+	ItemCid cid.Cid //<- Be careful, variable name must start with capital
+}
+
 var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
+var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
 func getSubnetAddr(runenv *runtime.RunEnv) (*net.TCPAddr, error) {
 	log.SetAllLoggers(log.LevelWarn)
@@ -55,7 +61,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	runenv.RecordMessage("Starting test case")
 	ctx    := context.Background()
 	synClient := sync.MustBoundClient(ctx, runenv)
-	//var kademliaDHT *dht.IpfsDHT
+
 	defer synClient.Close()
 
 	libp2pInitialized      := sync.State("libp2p-init-completed")
@@ -79,27 +85,20 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		-1,             // Select key length when possible (i.e. RSA).
 	)
 	libp2pNode, err := libp2p.New(ctx,
-		libp2p.Identity(priv),
-		
+		libp2p.Identity(priv),		
 		libp2p.Transport(func(u *tptu.Upgrader) *tcp.TcpTransport {
 			tpt := tcp.NewTCPTransport(u)
 			tpt.DisableReuseport = true
 			return tpt
-		}),
-		
+		}),		
 		libp2p.EnableNATService(), 
 		libp2p.ForceReachabilityPublic(),
 		libp2p.ListenAddrs(mutliAddr),
-
 	)
-	//var ds datastore.Batching
-	//ds = dssync.MutexWrap(datastore.NewMapDatastore())
+
 	dhtOptions := []dht.Option{
 		dht.ProtocolPrefix("/testground"),
 		dht.Datastore(datastore.NewMapDatastore()),
-		//dhtopts.BucketSize(opts.BucketSize),
-		//dhtopts.RoutingTableRefreshQueryTimeout(opts.Timeout),
-		//dhtopts.NamespacedValidator("ipns", ipns.Validator{KeyBook: h.Peerstore()}),
 	}
 	
 	kademliaDHT, err := dht.New(ctx, libp2pNode, dhtOptions...)
@@ -107,25 +106,23 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		runenv.RecordMessage("Error in seting up Kadmlia %s", err)
 	}
 	
-	addrInfo := host.InfoFromHost(libp2pNode)
 	runenv.RecordMessage("libp2p initilization complete")
 	seq := synClient.MustSignalAndWait(ctx, libp2pInitialized,totalNodes)
 	
 	/*
 	Synchronize nodes
 	*/
+	addrInfo := host.InfoFromHost(libp2pNode)
 	if seq==1 { // I am the bootstrap node, publish
 		synClient.Publish(ctx, node_info_topic,  &NodeInfo{addrInfo})
 	}
 	bootstap_info_channel := make(chan *NodeInfo)
 	synClient.Subscribe(ctx, node_info_topic,  bootstap_info_channel)
 	bootstrap_node := <-bootstap_info_channel
-	runenv.RecordMessage("Received from channel %s", bootstrap_node.Addr)
 	
 	/*
 	Bootstap nodes
-	*/	
-	
+	*/		
 	if seq == 1 {//the first nodes is assumed to be the bootstrap node
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)
 	} else{
@@ -139,40 +136,35 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		}
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)	
 	}
-	/*
-	for _, addr := range dht.DefaultBootstrapPeers {
-		pi, _ := peer.AddrInfoFromP2pAddr(addr)
-		// We ignore errors as some bootstrap peers may be down
-
-		kademliaDHT.Host().Connect(ctx, *pi)
-		fmt.Println("Connected to bootstrap node", pi.ID)
-	}*/
 	synClient.MustSignalAndWait(ctx, dhtBootstrapCompleted,totalNodes)
-	
-	time.Sleep(time.Second * 20)
-	//synClient.MustSignalAndWait(ctx, dhtBootstrapCompleted,totalNodes)
-	runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
-	
-	
-
 	
 
 	/*
 	Create records and announce that you can provide them
 	*/
-	
+	time.Sleep(time.Second * 20)
+	runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
 	packet := fmt.Sprintf("Hello from %s", addrInfo)
 	cid := cid.NewCidV0(u.Hash([]byte(packet)))
-
+	//Announce in the DHT
 	err = kademliaDHT.Provide(ctx, cid, true)
 	if err == nil {
 		runenv.RecordMessage("Provided CID: %s", cid)
-	}
-
-	if err != nil {
+	} else {
 		panic(err)
 	}
+	synClient.Publish(ctx, item_info_topic,  &ItemInfo{cid})
+	item_info_channel := make(chan *ItemInfo)
+	synClient.Subscribe(ctx, item_info_topic,  item_info_channel)
+	//We consider one item per node
+	for i := 0; i < totalNodes; i++ {
+		item:= <- item_info_channel
+        runenv.RecordMessage("Learned Item %s", item.ItemCid)
+    }
 
+	/*
+	Finish experiment
+	*/
 	synClient.MustSignalAndWait(ctx, experimentCompleted,totalNodes)
 	runenv.RecordMessage("Ending test case")
 	return nil

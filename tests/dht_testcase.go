@@ -157,11 +157,16 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	item_info_channel := make(chan *ItemInfo)
 	synClient.Subscribe(ctx, item_info_topic,  item_info_channel)
 	//We consider one item per node
+	
+	var item *ItemInfo
 	for i := 0; i < totalNodes; i++ {
-		item:= <- item_info_channel
+		item= <- item_info_channel
         runenv.RecordMessage("Learned Item %s", item.ItemCid)
     }
 
+	provChan := kademliaDHT.FindProvidersAsync(ctx, item.ItemCid, 1)
+	provider :=<-provChan
+	runenv.RecordMessage("Found provider for %s node %s", item.ItemCid, provider)
 	/*
 	Finish experiment
 	*/

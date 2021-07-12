@@ -23,6 +23,7 @@ import (
 	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
 	tcp "github.com/libp2p/go-tcp-transport"
 	"github.com/ipfs/go-datastore"
+	connmgr "github.com/libp2p/go-libp2p-connmgr"
 )
 
 type NodeInfo struct
@@ -94,6 +95,11 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		libp2p.EnableNATService(), 
 		libp2p.ForceReachabilityPublic(),
 		libp2p.ListenAddrs(mutliAddr),
+		libp2p.ConnectionManager(connmgr.NewConnManager(
+			400,         // Lowwater
+			600,         // HighWater,
+			time.Minute, // GracePeriod
+		)),
 	)
 
 	dhtOptions := []dht.Option{
@@ -134,6 +140,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		} else {
 			runenv.RecordMessage("Connection established")
 		}
+		time.Sleep(time.Second * 3)
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)	
 	}
 	synClient.MustSignalAndWait(ctx, dhtBootstrapCompleted,totalNodes)

@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"net"
+	//"net"
 	"fmt"
 	"time"
 	//"sync"
@@ -14,14 +14,15 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/peer"
 	manet "github.com/multiformats/go-multiaddr-net"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/ipfs/go-log/v2"
+	//"github.com/ipfs/go-log/v2"
 	"github.com/ipfs/go-cid"
 	u "github.com/ipfs/go-ipfs-util"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-core/crypto"
-	tptu "github.com/libp2p/go-libp2p-transport-upgrader"
-	tcp "github.com/libp2p/go-tcp-transport"
+	//tptu "github.com/libp2p/go-libp2p-transport-upgrader"
+	//tcp "github.com/libp2p/go-tcp-transport"
 	"github.com/ipfs/go-datastore"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
 )
@@ -38,31 +39,11 @@ type ItemInfo struct
 var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
-func getSubnetAddr(runenv *runtime.RunEnv) (*net.TCPAddr, error) {
-	log.SetAllLoggers(log.LevelWarn)
-	subnet := runenv.TestSubnet
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, err
-	}
-	for _, addr := range addrs {
-		if ip, ok := addr.(*net.IPNet); ok {
-			if subnet.Contains(ip.IP) {
-				tcpAddr := &net.TCPAddr{IP: ip.IP}
-				return tcpAddr, nil
-			}
-		} else {
-			panic(fmt.Sprintf("%T", addr))
-		}
-	}
-	return nil, fmt.Errorf("no network interface found. Addrs: %v", addrs)
-}
-
 func DHTTest(runenv *runtime.RunEnv) error {
 	runenv.RecordMessage("Starting test case")
-	ctx    := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	synClient := sync.MustBoundClient(ctx, runenv)
-
 	defer synClient.Close()
 
 	libp2pInitialized      := sync.State("libp2p-init-completed")
@@ -71,30 +52,39 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	experimentCompleted    := sync.State("experiment-completed")
 	totalNodes             := runenv.TestInstanceCount
 
-	// instantiate a network client; see 'Traffic shaping' in the docs.
+	if !runenv.TestSidecar {
+		runenv.RecordMessage("Sidecar is not available, abandoning...")
+		return nil
+	}
 	netClient := network.NewClient(synClient, runenv)
-	runenv.RecordMessage("waiting for network initialization")
-	netClient.MustWaitNetworkInitialized(ctx)
+	runenv.RecordMessage("Waiting for network initialization")
+	err := netClient.WaitNetworkInitialized(ctx)
+	if err != nil {
+		return err
+	}
 	
 	/*
 	Configure libp2p
 	*/
-	tcpAddr, err    := getSubnetAddr(runenv)
-	mutliAddr, err  := manet.FromNetAddr(tcpAddr)
+
+	ipaddr, err:= netClient.GetDataNetworkIP()
+	                  
+	mutliAddr, err  := manet.FromIP(ipaddr)
 	priv, _, err := crypto.GenerateKeyPair(
 		crypto.Ed25519, // Select your key type. Ed25519 are nice short
 		-1,             // Select key length when possible (i.e. RSA).
 	)
 	libp2pNode, err := libp2p.New(ctx,
 		libp2p.Identity(priv),		
-		libp2p.Transport(func(u *tptu.Upgrader) *tcp.TcpTransport {
-			tpt := tcp.NewTCPTransport(u)
-			tpt.DisableReuseport = true
-			return tpt
-		}),		
+		//libp2p.Transport(func(u *tptu.Upgrader) *tcp.TcpTransport {
+			//tpt := tcp.NewTCPTransport(u)
+			//tpt.DisableReuseport = true
+			//return tpt
+		//}),
+		libp2p.DefaultTransports,		
 		libp2p.EnableNATService(), 
 		libp2p.ForceReachabilityPublic(),
-		libp2p.ListenAddrs(mutliAddr),
+		libp2p.ListenAddrs(mutliAddr.Encapsulate(multiaddr.StringCast("/tcp/0"))),
 		libp2p.ConnectionManager(connmgr.NewConnManager(
 			400,         // Lowwater
 			600,         // HighWater,

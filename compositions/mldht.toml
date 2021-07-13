@@ -5,7 +5,7 @@
 [global]
   plan = "mldht-test"
   case = "dht-case"
-  total_instances = 30
+  total_instances = 40
   builder = "docker:go"
   runner = "local:docker"
   timeout_secs = "600"

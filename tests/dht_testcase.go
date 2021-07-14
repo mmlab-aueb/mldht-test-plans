@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 	//"sync"
-	//"math/rand"
+	"math/rand"
 
 	"github.com/testground/sdk-go/runtime"
 	"github.com/testground/sdk-go/sync"
@@ -40,10 +40,10 @@ var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
 func DHTTest(runenv *runtime.RunEnv) error {
-	runenv.RecordMessage("Starting test case")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	timeout     := time.Duration(runenv.IntParam("timeout_secs"))*time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	synClient   := sync.MustBoundClient(ctx, runenv)
 	defer cancel()
-	synClient := sync.MustBoundClient(ctx, runenv)
 	defer synClient.Close()
 
 	libp2pInitialized      := sync.State("libp2p-init-completed")
@@ -51,13 +51,14 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	dhtBootstrapCompleted  := sync.State("bootstrap-completed")
 	experimentCompleted    := sync.State("experiment-completed")
 	totalNodes             := runenv.TestInstanceCount
+	totalItems             := totalNodes
+	itemsToFind            := runenv.IntParam("items_to_find")
 
 	if !runenv.TestSidecar {
 		runenv.RecordMessage("Sidecar is not available, abandoning...")
 		return nil
 	}
 	netClient := network.NewClient(synClient, runenv)
-	runenv.RecordMessage("Waiting for network initialization")
 	err := netClient.WaitNetworkInitialized(ctx)
 	if err != nil {
 		return err
@@ -66,11 +67,9 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	/*
 	Configure libp2p
 	*/
-
-	ipaddr, err:= netClient.GetDataNetworkIP()
-	                  
+	ipaddr, err     := netClient.GetDataNetworkIP()                
 	mutliAddr, err  := manet.FromIP(ipaddr)
-	priv, _, err := crypto.GenerateKeyPair(
+	priv, _, err    := crypto.GenerateKeyPair(
 		crypto.Ed25519, // Select your key type. Ed25519 are nice short
 		-1,             // Select key length when possible (i.e. RSA).
 	)
@@ -91,58 +90,52 @@ func DHTTest(runenv *runtime.RunEnv) error {
 			time.Minute, // GracePeriod
 		)),
 	)
-
 	dhtOptions := []dht.Option{
 		dht.ProtocolPrefix("/testground"),
 		dht.Datastore(datastore.NewMapDatastore()),
 	}
-	
 	kademliaDHT, err := dht.New(ctx, libp2pNode, dhtOptions...)
 	if err!= nil {
 		runenv.RecordMessage("Error in seting up Kadmlia %s", err)
 	}
-	
 	runenv.RecordMessage("libp2p initilization complete")
 	seq := synClient.MustSignalAndWait(ctx, libp2pInitialized,totalNodes)
 	
 	/*
-	Synchronize nodes
+	 Announce boostrap node
 	*/
 	addrInfo := host.InfoFromHost(libp2pNode)
 	if seq==1 { // I am the bootstrap node, publish
 		synClient.Publish(ctx, node_info_topic,  &NodeInfo{addrInfo})
 	}
-	bootstap_info_channel := make(chan *NodeInfo)
-	synClient.Subscribe(ctx, node_info_topic,  bootstap_info_channel)
-	bootstrap_node := <-bootstap_info_channel
+	bootstaInfoChannel := make(chan *NodeInfo)
+	synClient.Subscribe(ctx, node_info_topic,  bootstaInfoChannel)
+	bootstrapNode := <-bootstaInfoChannel
 	
 	/*
-	Bootstap nodes
+	 Bootstap DHT
 	*/		
 	if seq == 1 {//the first nodes is assumed to be the bootstrap node
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)
 	} else{
 		//Bootstrap one by one
 		<-synClient.MustBarrier(ctx, nodeBootstrapCompleted, int(seq-1)).C
-		runenv.RecordMessage("Node %d will bootstrap from %s", seq, bootstrap_node.Addr)
-		if err := kademliaDHT.Host().Connect(ctx, *bootstrap_node.Addr); err != nil {
+		runenv.RecordMessage("Node %d will bootstrap from %s", seq, bootstrapNode.Addr)
+		if err := kademliaDHT.Host().Connect(ctx, *bootstrapNode.Addr); err != nil {
 			runenv.RecordMessage("Error in connecting %s", err)
-		} else {
-			runenv.RecordMessage("Connection established")
 		}
 		time.Sleep(time.Second * 3)
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)	
 	}
 	synClient.MustSignalAndWait(ctx, dhtBootstrapCompleted,totalNodes)
 	
-
 	/*
-	Create records and announce that you can provide them
+	 Create records and announce that you can provide them
 	*/
 	time.Sleep(time.Second * 20)
 	runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
 	packet := fmt.Sprintf("Hello from %s", addrInfo)
-	cid := cid.NewCidV0(u.Hash([]byte(packet)))
+	cid    := cid.NewCidV0(u.Hash([]byte(packet)))
 	//Announce in the DHT
 	err = kademliaDHT.Provide(ctx, cid, true)
 	if err == nil {
@@ -151,21 +144,27 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		panic(err)
 	}
 	synClient.Publish(ctx, item_info_topic,  &ItemInfo{cid})
-	item_info_channel := make(chan *ItemInfo)
-	synClient.Subscribe(ctx, item_info_topic,  item_info_channel)
+	itemInfoChannel := make(chan *ItemInfo)
+	synClient.Subscribe(ctx, item_info_topic,  itemInfoChannel)
 	//We consider one item per node
-	
-	var item *ItemInfo
-	for i := 0; i < totalNodes; i++ {
-		item= <- item_info_channel
-        runenv.RecordMessage("Learned Item %s", item.ItemCid)
+	item:= make([]*ItemInfo, totalItems)
+	for i := 0; i < totalItems; i++ {
+		item[i] = <- itemInfoChannel
+        runenv.RecordMessage("Learned Item %s", item[i].ItemCid)
     }
 
-	provChan := kademliaDHT.FindProvidersAsync(ctx, item.ItemCid, 1)
-	provider :=<-provChan
-	runenv.RecordMessage("Found provider for %s node %s", item.ItemCid, provider)
 	/*
-	Finish experiment
+	 Find providers of records
+	*/
+	for i:=0; i< itemsToFind; i++ {
+		index := rand.Intn(totalItems)
+		provChan := kademliaDHT.FindProvidersAsync(ctx, item[index].ItemCid, 1)
+		provider :=<-provChan
+		runenv.RecordMessage("Found provider for %s node %s", item[index].ItemCid, provider)
+	}
+	
+	/*
+	 Finish experiment
 	*/
 	synClient.MustSignalAndWait(ctx, experimentCompleted,totalNodes)
 	runenv.RecordMessage("Ending test case")

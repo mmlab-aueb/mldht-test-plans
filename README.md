@@ -12,3 +12,11 @@ Make sure `testground daemon` runs. Then from the mldht test plans directory exe
 ```
 testground run composition -f compositions/mldht.toml
 ```
+
+## Extracting results
+
+```
+grep -r 'routing-table-size' ~/testground/data/outputs/local_docker/mldht-test/<testid>/nodes/
+grep -r 'records-found' ~/testground/data/outputs/local_docker/mldht-test/<testid>/nodes/
+```
+

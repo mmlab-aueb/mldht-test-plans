@@ -40,10 +40,11 @@ var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
 func DHTTest(runenv *runtime.RunEnv) error {
-	timeout     := time.Duration(runenv.IntParam("timeout_secs"))*time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	//timeout     := time.Duration(runenv.IntParam("timeout_secs"))*time.Second
+	//ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx         := context.Background()
 	synClient   := sync.MustBoundClient(ctx, runenv)
-	defer cancel()
+	//defer cancel()
 	defer synClient.Close()
 
 	libp2pInitialized      := sync.State("libp2p-init-completed")
@@ -133,13 +134,13 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	 Create records and announce that you can provide them
 	*/
 	time.Sleep(time.Second * 20)
-	runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
+	//runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
 	packet := fmt.Sprintf("Hello from %s", addrInfo)
 	cid    := cid.NewCidV0(u.Hash([]byte(packet)))
 	//Announce in the DHT
 	err = kademliaDHT.Provide(ctx, cid, true)
 	if err == nil {
-		runenv.RecordMessage("Provided CID: %s", cid)
+		//runenv.RecordMessage("Provided CID: %s", cid)
 	} else {
 		panic(err)
 	}
@@ -150,19 +151,29 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	item:= make([]*ItemInfo, totalItems)
 	for i := 0; i < totalItems; i++ {
 		item[i] = <- itemInfoChannel
-        runenv.RecordMessage("Learned Item %s", item[i].ItemCid)
     }
 
 	/*
 	 Find providers of records
 	*/
+	recordsFound :=0
 	for i:=0; i< itemsToFind; i++ {
 		index := rand.Intn(totalItems)
 		provChan := kademliaDHT.FindProvidersAsync(ctx, item[index].ItemCid, 1)
-		provider :=<-provChan
-		runenv.RecordMessage("Found provider for %s node %s", item[index].ItemCid, provider)
+		_,ok :=<-provChan
+		if ok {
+			//runenv.RecordMessage("Found provider for %s node %s", item[index].ItemCid, provider)
+			recordsFound++
+		}
+		
 	}
 	
+	/*
+	 Record statistics
+	*/
+	runenv.R().RecordPoint("routing-table-size", float64(kademliaDHT.RoutingTable().Size()))
+	runenv.R().RecordPoint("records-found", float64(recordsFound))
+
 	/*
 	 Finish experiment
 	*/

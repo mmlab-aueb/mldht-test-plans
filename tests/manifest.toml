@@ -30,5 +30,5 @@ name = "dht-case"
 instances = { min = 2, max = 10000, default = 2 }
 
   [testcases.params]
-  timeout_secs  = { type = "int", desc = "test timeout", unit = "seconds", default = 600 }
+  timeout_secs  = { type = "int", desc = "test timeout", unit = "seconds", default = 10000 }
   items_to_find = { type = "int", desc = "Number of items to search for", default = 1 }

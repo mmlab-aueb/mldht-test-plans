@@ -5,7 +5,7 @@
 [global]
   plan = "mldht-test"
   case = "dht-case"
-  total_instances = 300
+  total_instances = 40
   builder = "docker:go"
   runner = "local:docker"
 
@@ -14,4 +14,4 @@
   [groups.instances]
     percentage = 1.0
   [groups.run]
-  test_params = { items_to_find = "100",  }
+    test_params = { items_to_find = "10",  }

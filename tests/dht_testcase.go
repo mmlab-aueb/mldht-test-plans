@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	//"net"
 	"fmt"
 	"time"
-	//"sync"
 	"math/rand"
 
 	"github.com/testground/sdk-go/runtime"
@@ -16,15 +14,11 @@ import (
 	manet "github.com/multiformats/go-multiaddr-net"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/libp2p/go-libp2p-core/host"
-	//"github.com/ipfs/go-log/v2"
 	"github.com/ipfs/go-cid"
 	u "github.com/ipfs/go-ipfs-util"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-core/crypto"
-	//tptu "github.com/libp2p/go-libp2p-transport-upgrader"
-	//tcp "github.com/libp2p/go-tcp-transport"
 	"github.com/ipfs/go-datastore"
-	connmgr "github.com/libp2p/go-libp2p-connmgr"
 )
 
 type NodeInfo struct
@@ -40,11 +34,8 @@ var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
 func DHTTest(runenv *runtime.RunEnv) error {
-	//timeout     := time.Duration(runenv.IntParam("timeout_secs"))*time.Second
-	//ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	ctx         := context.Background()
 	synClient   := sync.MustBoundClient(ctx, runenv)
-	//defer cancel()
 	defer synClient.Close()
 
 	libp2pInitialized      := sync.State("libp2p-init-completed")
@@ -62,6 +53,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	netClient := network.NewClient(synClient, runenv)
 	err := netClient.WaitNetworkInitialized(ctx)
 	if err != nil {
+		runenv.RecordMessage("Error in seting up network %s", err)
 		return err
 	}
 	
@@ -76,20 +68,11 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	)
 	libp2pNode, err := libp2p.New(ctx,
 		libp2p.Identity(priv),		
-		//libp2p.Transport(func(u *tptu.Upgrader) *tcp.TcpTransport {
-			//tpt := tcp.NewTCPTransport(u)
-			//tpt.DisableReuseport = true
-			//return tpt
-		//}),
 		libp2p.DefaultTransports,		
 		libp2p.EnableNATService(), 
 		libp2p.ForceReachabilityPublic(),
 		libp2p.ListenAddrs(mutliAddr.Encapsulate(multiaddr.StringCast("/tcp/0"))),
-		libp2p.ConnectionManager(connmgr.NewConnManager(
-			400,         // Lowwater
-			600,         // HighWater,
-			time.Minute, // GracePeriod
-		)),
+
 	)
 	dhtOptions := []dht.Option{
 		dht.ProtocolPrefix("/testground"),
@@ -98,6 +81,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	kademliaDHT, err := dht.New(ctx, libp2pNode, dhtOptions...)
 	if err!= nil {
 		runenv.RecordMessage("Error in seting up Kadmlia %s", err)
+		return err
 	}
 	runenv.RecordMessage("libp2p initilization complete")
 	seq := synClient.MustSignalAndWait(ctx, libp2pInitialized,totalNodes)
@@ -123,7 +107,8 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		<-synClient.MustBarrier(ctx, nodeBootstrapCompleted, int(seq-1)).C
 		runenv.RecordMessage("Node %d will bootstrap from %s", seq, bootstrapNode.Addr)
 		if err := kademliaDHT.Host().Connect(ctx, *bootstrapNode.Addr); err != nil {
-			runenv.RecordMessage("Error in connecting %s", err)
+			runenv.RecordMessage("Error in bootstraping %s", err)
+			return err
 		}
 		time.Sleep(time.Second * 3)
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)	
@@ -139,10 +124,9 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	cid    := cid.NewCidV0(u.Hash([]byte(packet)))
 	//Announce in the DHT
 	err = kademliaDHT.Provide(ctx, cid, true)
-	if err == nil {
-		//runenv.RecordMessage("Provided CID: %s", cid)
-	} else {
-		panic(err)
+	if err != nil {
+		runenv.RecordMessage("Error in providing record %s", err)
+		return err
 	}
 	synClient.Publish(ctx, item_info_topic,  &ItemInfo{cid})
 	itemInfoChannel := make(chan *ItemInfo)
@@ -164,6 +148,9 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		if ok {
 			//runenv.RecordMessage("Found provider for %s node %s", item[index].ItemCid, provider)
 			recordsFound++
+		}else{
+			runenv.RecordMessage("Error, cannot find record")
+		    break;
 		}
 		
 	}

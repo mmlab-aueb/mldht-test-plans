@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 	"math/rand"
+	gosync "sync"
 
 	"github.com/testground/sdk-go/runtime"
 	"github.com/testground/sdk-go/sync"
@@ -30,6 +31,7 @@ type ItemInfo struct
 	ItemCid cid.Cid //<- Be careful, variable name must start with capital
 }
 
+
 var node_info_topic = sync.NewTopic("nodeinfo", &NodeInfo{})
 var item_info_topic = sync.NewTopic("iteminfo", &ItemInfo{})
 
@@ -45,7 +47,8 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	totalNodes             := runenv.TestInstanceCount
 	totalItems             := totalNodes
 	itemsToFind            := runenv.IntParam("items_to_find")
-
+	mapMutex               := gosync.RWMutex{}
+	learnedPeersperKey     := make(map[string]map[string]int) //<-user for counting hops per key
 	if !runenv.TestSidecar {
 		runenv.RecordMessage("Sidecar is not available, abandoning...")
 		return nil
@@ -90,6 +93,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	 Announce boostrap node
 	*/
 	addrInfo := host.InfoFromHost(libp2pNode)
+	runenv.RecordMessage("My Node Id: %s", addrInfo)
 	if seq==1 { // I am the bootstrap node, publish
 		synClient.Publish(ctx, node_info_topic,  &NodeInfo{addrInfo})
 	}
@@ -118,7 +122,73 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	/*
 	 Create records and announce that you can provide them
 	*/
-	time.Sleep(time.Second * 20)
+	time.Sleep(time.Second * 2)
+	ectx, dhtlkevents := dht.RegisterForLookupEvents(ctx)
+	go func() {
+		for e := range dhtlkevents {
+			mapMutex.Lock()
+			response := e.Response
+			if  response != nil {
+				/*
+				runenv.RecordMessage("...Received DHT Lookup Response")
+				runenv.RecordMessage("......Key: %x ",e.Key.Key)
+				runenv.RecordMessage("......Query id: %s", e.ID)
+				runenv.RecordMessage("......Source: %s", response.Source.Peer)
+				runenv.RecordMessage("......Cause: %s", response.Cause.Peer)
+				runenv.RecordMessage("......Learned:")
+				*/
+				for _,node := range response.Heard {
+					//runenv.RecordMessage(".........: %s", node.Peer)
+					//see if we already know this node
+					_, exists := learnedPeersperKey[e.Key.Key][string(node.Peer)]
+					//if we know it move to the next
+					if exists {
+						continue
+					}
+					hops := 0
+					//If the cause is not us, add the number of hops until cause
+					hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
+					if exists { // Otherwise, the cause is ourself
+						hops = hopsToCause + 1
+					}
+					learnedPeersperKey[e.Key.Key][string(node.Peer)] = hops
+				}
+				if len(response.Queried) > 0 {
+					//node := response.Queried[0]
+					//runenv.RecordMessage("......Queried:")
+					//runenv.RecordMessage(".........: %s", node.Peer)
+					if len(response.Heard) == 0 { //this node gave us the response
+						hops := 1
+						hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
+						if exists { // Otherwise, the cause is ourself
+							hops = hopsToCause + 1
+						}
+						learnedPeersperKey[e.Key.Key]["provider"] = hops
+					}
+				}
+				/*
+				runenv.RecordMessage("......Queried:")
+				for _,node := range response.Queried {
+					runenv.RecordMessage(".........: %s", node.Peer)
+					//see if we already know this node
+					_, exists := learnedPeersperKey[e.Key.Key][string(node.Peer)]
+					//if we know it move to the next
+					if exists {
+						continue
+					}
+					hops := 1
+					//If the cause is not us, add the number of hops until cause
+					hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
+					if exists { // Otherwise, the cause is ourself
+						hops = hopsToCause + 1
+					}
+					learnedPeersperKey[e.Key.Key][string(node.Peer)] = hops
+				}*/
+			}
+			mapMutex.Unlock()
+		}	
+	}()
+
 	//runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
 	packet := fmt.Sprintf("Hello from %s", addrInfo)
 	cid    := cid.NewCidV0(u.Hash([]byte(packet)))
@@ -128,9 +198,9 @@ func DHTTest(runenv *runtime.RunEnv) error {
 		runenv.RecordMessage("Error in providing record %s", err)
 		return err
 	}
-	synClient.Publish(ctx, item_info_topic,  &ItemInfo{cid})
+	synClient.Publish(ectx, item_info_topic,  &ItemInfo{cid})
 	itemInfoChannel := make(chan *ItemInfo)
-	synClient.Subscribe(ctx, item_info_topic,  itemInfoChannel)
+	synClient.Subscribe(ectx, item_info_topic,  itemInfoChannel)
 	//We consider one item per node
 	item:= make([]*ItemInfo, totalItems)
 	for i := 0; i < totalItems; i++ {
@@ -140,15 +210,32 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	/*
 	 Find providers of records
 	*/
-	recordsFound :=0
+	recordsFound   := 0
+	recordsMissed  := 0
+	hopsToProvider := 0
 	for i:=0; i< itemsToFind; i++ {
 		index := rand.Intn(totalItems)
-		provChan := kademliaDHT.FindProvidersAsync(ctx, item[index].ItemCid, 1)
+		keyMH :=  item[index].ItemCid.Hash()
+		mapMutex.Lock()
+		learnedPeersperKey[string(keyMH)] = make(map[string]int)
+		mapMutex.Unlock()
+		provChan := kademliaDHT.FindProvidersAsync(ectx, item[index].ItemCid, 1)
+		//peer ,ok :=<-provChan
 		_,ok :=<-provChan
 		if ok {
-			//runenv.RecordMessage("Found provider for %s node %s", item[index].ItemCid, provider)
+			//Let's wait some time because NodesLookUpEvent seems to arrive after
+			time.Sleep(time.Second * 1)
+			mapMutex.RLock()
+			hops, exists := learnedPeersperKey[string(keyMH)]["provider"]
+			mapMutex.RUnlock()
+			if exists {//Otherwise it means that the provider was in local cache
+				hopsToProvider += hops
+			}
+			//runenv.RecordMessage("Found provider %s for %x in %d hops", peer.ID, keyMH, hops)
 			recordsFound++
+			
 		}else{
+			recordsMissed++
 			runenv.RecordMessage("Error, cannot find record")
 		    break;
 		}
@@ -160,6 +247,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 	*/
 	runenv.R().RecordPoint("routing-table-size", float64(kademliaDHT.RoutingTable().Size()))
 	runenv.R().RecordPoint("records-found", float64(recordsFound))
+	runenv.R().RecordPoint("hops-to-provider", float64(hopsToProvider)/float64(recordsFound))
 
 	/*
 	 Finish experiment

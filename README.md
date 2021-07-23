@@ -18,6 +18,7 @@ testground run composition -f compositions/mldht.toml
 ```
 grep -r 'routing-table-size' ~/testground/data/outputs/local_docker/mldht-test/<testid>/nodes/
 grep -r 'records-found' ~/testground/data/outputs/local_docker/mldht-test/<testid>/nodes/
+grep -r 'hops-to-provider' ~/testground/data/outputs/local_docker/mldht-test/<testid>/nodes/
 ```
 
 ## Notes

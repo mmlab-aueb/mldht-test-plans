@@ -166,24 +166,6 @@ func DHTTest(runenv *runtime.RunEnv) error {
 						learnedPeersperKey[e.Key.Key]["provider"] = hops
 					}
 				}
-				/*
-				runenv.RecordMessage("......Queried:")
-				for _,node := range response.Queried {
-					runenv.RecordMessage(".........: %s", node.Peer)
-					//see if we already know this node
-					_, exists := learnedPeersperKey[e.Key.Key][string(node.Peer)]
-					//if we know it move to the next
-					if exists {
-						continue
-					}
-					hops := 1
-					//If the cause is not us, add the number of hops until cause
-					hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
-					if exists { // Otherwise, the cause is ourself
-						hops = hopsToCause + 1
-					}
-					learnedPeersperKey[e.Key.Key][string(node.Peer)] = hops
-				}*/
 			}
 			mapMutex.Unlock()
 		}	

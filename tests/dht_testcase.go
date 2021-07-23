@@ -145,7 +145,7 @@ func DHTTest(runenv *runtime.RunEnv) error {
 					if exists {
 						continue
 					}
-					hops := 0
+					hops := 1
 					//If the cause is not us, add the number of hops until cause
 					hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
 					if exists { // Otherwise, the cause is ourself
@@ -158,12 +158,8 @@ func DHTTest(runenv *runtime.RunEnv) error {
 					//runenv.RecordMessage("......Queried:")
 					//runenv.RecordMessage(".........: %s", node.Peer)
 					if len(response.Heard) == 0 { //this node gave us the response
-						hops := 1
-						hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
-						if exists { // Otherwise, the cause is ourself
-							hops = hopsToCause + 1
-						}
-						learnedPeersperKey[e.Key.Key]["provider"] = hops
+						hopsToCause := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
+						learnedPeersperKey[e.Key.Key]["provider"] = hopsToCause
 					}
 				}
 			}

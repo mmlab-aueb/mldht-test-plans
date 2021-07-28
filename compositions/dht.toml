@@ -1,0 +1,17 @@
+[metadata]
+  name = "mldht-composition"
+  author = "Nikos Fotiou"
+
+[global]
+  plan = "mldht-test"
+  case = "dht-case"
+  total_instances = 200
+  builder = "docker:go"
+  runner = "local:docker"
+
+[[groups]]
+  id = "nodes"
+  [groups.instances]
+    percentage = 1.0
+  [groups.run]
+    test_params = { items_to_find = "50",  }

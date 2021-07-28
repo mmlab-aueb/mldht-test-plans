@@ -5,7 +5,8 @@ import (
 )
 
 var testCases = map[string]interface{}{
-	"dht-case":   DHTTest,
+	"dht-case"  : DHTTest,
+	"mldht-case": MLDHTTest,
 }
 
 func main() {

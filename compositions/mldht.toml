@@ -4,14 +4,52 @@
 
 [global]
   plan = "mldht-test"
-  case = "dht-case"
-  total_instances = 40
+  case = "mldht-case"
+  total_instances = 200
   builder = "docker:go"
   runner = "local:docker"
 
 [[groups]]
-  id = "nodes"
+  id = "clusterA"
   [groups.instances]
-    percentage = 1.0
+    percentage = 0.2
   [groups.run]
-    test_params = { items_to_find = "10",  }
+    [groups.run.test_params]
+      items_to_find = "50"
+      cluster_id = "A"
+
+[[groups]]
+  id = "clusterB"
+  [groups.instances]
+    percentage = 0.2
+  [groups.run]
+    [groups.run.test_params]
+      items_to_find = "50"
+      cluster_id = "B"
+
+[[groups]]
+  id = "clusterC"
+  [groups.instances]
+    percentage = 0.2
+  [groups.run]
+    [groups.run.test_params]
+      items_to_find = "50"
+      cluster_id = "C"
+
+[[groups]]
+  id = "clusterD"
+  [groups.instances]
+    percentage = 0.2
+  [groups.run]
+    [groups.run.test_params]
+      items_to_find = "50"
+      cluster_id = "D"
+  
+[[groups]]
+  id = "clusterE"
+  [groups.instances]
+    percentage = 0.2
+  [groups.run]
+    [groups.run.test_params]
+      items_to_find = "50"
+      cluster_id = "E"

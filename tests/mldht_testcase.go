@@ -20,9 +20,13 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/ipfs/go-datastore"
+
+	logging "github.com/ipfs/go-log"
 )
 
 func MLDHTTest(runenv *runtime.RunEnv) error {
+
+	logging.SetLogLevel("dht", "INFO")
 	ctx         := context.Background()
 	synClient   := sync.MustBoundClient(ctx, runenv)
 	defer synClient.Close()
@@ -47,9 +51,10 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 	totalNodes             := runenv.TestInstanceCount
 	totalItems             := totalNodes
 	itemsToFind            := runenv.IntParam("items_to_find")
-	clusterId             := runenv.StringParam("cluster_id")
+	clusterId              := runenv.StringParam("cluster_id")
 	mapMutex               := gosync.RWMutex{}
 	learnedPeersperKey     := make(map[string]map[string]int) //<-user for counting hops per key
+	localNodes             := make(map[string]bool) //<- it used for stroring nodes of our cluster
 	if !runenv.TestSidecar {
 		runenv.RecordMessage("Sidecar is not available, abandoning...")
 		return nil
@@ -82,12 +87,15 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 	dhtOptions := []dht.Option{
 		dht.ProtocolPrefix("/testground"),
 		dht.Datastore(datastore.NewMapDatastore()),
+
 	}
 	kademliaDHT, err := dht.New(ctx, libp2pNode, dhtOptions...)
 	if err!= nil {
 		runenv.RecordMessage("Error in seting up Kadmlia %s", err)
 		return err
 	}
+
+	kademliaDHT.LocalNodes = localNodes
 	runenv.RecordMessage("libp2p initilization complete")
 	seq := synClient.MustSignalAndWait(ctx, libp2pInitialized,totalNodes)
 	
@@ -103,6 +111,10 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 	var bootstrapNode *NodeInfo
 	for i := 0; i < totalNodes; i++ {
 		node := <-bootstaInfoChannel
+		if node.ClusterId == clusterId {//added to local nodes
+			runenv.RecordMessage("Adding new local node %s", string(node.Addr.ID))
+			localNodes[string(node.Addr.ID)] = true
+		}
 		if node.BootSeq == 1 && firstInGroup{
 			bootstrapNode = node
 		}
@@ -129,11 +141,13 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 		synClient.MustSignalEntry(ctx, nodeBootstrapCompleted)	
 	}
 	synClient.MustSignalAndWait(ctx, dhtBootstrapCompleted,totalNodes)
-	
-	/*
-	 Create records and announce that you can provide them
-	*/
+
 	time.Sleep(time.Second * 2)
+
+		
+	/*
+	 Listen for Lookup Events. They are used for tracking the number of hops
+	*/
 	ectx, dhtlkevents := dht.RegisterForLookupEvents(ctx)
 	go func() {
 		for e := range dhtlkevents {
@@ -178,6 +192,10 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 		}	
 	}()
 
+		
+	/*
+	 Create records and announce that you can provide them
+	*/
 	//runenv.RecordMessage("Routing table size %d", kademliaDHT.RoutingTable().Size())
 	packet := fmt.Sprintf("Hello from %s", addrInfo)
 	cid    := cid.NewCidV0(u.Hash([]byte(packet)))

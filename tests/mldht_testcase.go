@@ -37,9 +37,15 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 		ClusterId string
 		BootSeq   int64
 	}
+
 	type ItemInfo struct
 	{
 		ItemCid cid.Cid //<- Be careful, variable name must start with capital
+	}
+
+	type LearnedNode struct{
+		Hops int
+		Previous string
 	}
 
 	var node_info_topic     = sync.NewTopic("nodeinfo", &NodeInfo{})
@@ -53,7 +59,7 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 	itemsToFind            := runenv.IntParam("items_to_find")
 	clusterId              := runenv.StringParam("cluster_id")
 	mapMutex               := gosync.RWMutex{}
-	learnedPeersperKey     := make(map[string]map[string]int) //<-user for counting hops per key
+	learnedPeersperKey     := make(map[string]map[string]*LearnedNode) //<-user for counting hops per key
 	localNodes             := make(map[string]bool) //<- it used for stroring nodes of our cluster
 	if !runenv.TestSidecar {
 		runenv.RecordMessage("Sidecar is not available, abandoning...")
@@ -172,19 +178,21 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 					}
 					hops := 1
 					//If the cause is not us, add the number of hops until cause
-					hopsToCause, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
+					provider, exists := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
 					if exists { // Otherwise, the cause is ourself
-						hops = hopsToCause + 1
+						hops = provider.Hops + 1
 					}
-					learnedPeersperKey[e.Key.Key][string(node.Peer)] = hops
+					learnedPeersperKey[e.Key.Key][string(node.Peer)]= &LearnedNode{hops, string(response.Cause.Peer)}
+					learnedPeersperKey[e.Key.Key][string(node.Peer)].Previous = string(response.Cause.Peer)
 				}
 				if len(response.Queried) > 0 {
 					//node := response.Queried[0]
 					//runenv.RecordMessage("......Queried:")
 					//runenv.RecordMessage(".........: %s", node.Peer)
 					if len(response.Heard) == 0 { //this node gave us the response
-						hopsToCause := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)]
-						learnedPeersperKey[e.Key.Key]["provider"] = hopsToCause
+						hops := learnedPeersperKey[e.Key.Key][string(response.Cause.Peer)].Hops
+						learnedPeersperKey[e.Key.Key]["provider"]= &LearnedNode{hops, string(response.Cause.Peer)}
+
 					}
 				}
 			}
@@ -224,7 +232,7 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 		index := rand.Intn(totalItems)
 		keyMH :=  item[index].ItemCid.Hash()
 		mapMutex.Lock()
-		learnedPeersperKey[string(keyMH)] = make(map[string]int)
+		learnedPeersperKey[string(keyMH)] = make(map[string]*LearnedNode)
 		mapMutex.Unlock()
 		provChan := kademliaDHT.FindProvidersAsync(ectx, item[index].ItemCid, 1)
 		//peer ,ok :=<-provChan
@@ -233,10 +241,10 @@ func MLDHTTest(runenv *runtime.RunEnv) error {
 			//Let's wait some time because NodesLookUpEvent seems to arrive after
 			time.Sleep(time.Second * 1)
 			mapMutex.RLock()
-			hops, exists := learnedPeersperKey[string(keyMH)]["provider"]
+			provider, exists := learnedPeersperKey[string(keyMH)]["provider"]
 			mapMutex.RUnlock()
 			if exists {//Otherwise it means that the provider was in local cache
-				hopsToProvider += hops
+				hopsToProvider += provider.Hops
 			}
 			//runenv.RecordMessage("Found provider %s for %x in %d hops", peer.ID, keyMH, hops)
 			recordsFound++
